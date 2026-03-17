@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket System</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f3f4f6; color: #1f2937; padding: 2rem; }
+    h1 { text-align: center; margin-bottom: 2rem; font-size: 1.8rem; }
+    .container { max-width: 720px; margin: 0 auto; }
+
+    /* Form */
+    .card { background: #fff; border-radius: 10px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 1.5rem; }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+    label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .25rem; }
+    input, textarea, select { width: 100%; padding: .5rem .75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: .95rem; margin-bottom: .75rem; }
+    textarea { resize: vertical; min-height: 70px; }
+    button { background: #2563eb; color: #fff; border: none; padding: .55rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: .9rem; }
+    button:hover { background: #1d4ed8; }
+
+    /* Ticket list */
+    .ticket { background: #fff; border-radius: 10px; padding: 1rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: .75rem; display: flex; justify-content: space-between; align-items: center; }
+    .ticket-info { flex: 1; }
+    .ticket-title { font-weight: 600; font-size: 1rem; }
+    .ticket-meta { font-size: .8rem; color: #6b7280; margin-top: .25rem; }
+    .badge { display: inline-block; padding: .15rem .55rem; border-radius: 9999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; }
+    .badge-open { background: #dcfce7; color: #166534; }
+    .badge-in_progress { background: #fef9c3; color: #854d0e; }
+    .badge-closed { background: #f3f4f6; color: #6b7280; }
+    .ticket-actions { display: flex; gap: .5rem; align-items: center; margin-left: 1rem; }
+    .ticket-actions select { margin-bottom: 0; width: auto; font-size: .8rem; padding: .3rem .5rem; }
+    .ticket-actions button { font-size: .8rem; padding: .3rem .75rem; }
+    .empty { text-align: center; color: #9ca3af; padding: 2rem; }
+
+    /* Webhooks */
+    .webhook-item { background: #fff; border-radius: 10px; padding: .85rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: .6rem; display: flex; justify-content: space-between; align-items: center; }
+    .webhook-url { font-family: ui-monospace, monospace; font-size: .85rem; word-break: break-all; flex: 1; }
+    .webhook-id { font-size: .75rem; color: #6b7280; margin-right: .75rem; font-weight: 600; }
+    .btn-delete { background: #ef4444; font-size: .8rem; padding: .3rem .75rem; }
+    .btn-delete:hover { background: #dc2626; }
+    .section-divider { border: none; border-top: 1px solid #e5e7eb; margin: 2rem 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎫 Ticket System</h1>
+
+    <div class="card">
+      <h2>Create Ticket</h2>
+      <form id="create-form">
+        <label for="title">Title</label>
+        <input type="text" id="title" placeholder="e.g. Fix login bug" required>
+        <label for="desc">Description</label>
+        <textarea id="desc" placeholder="Describe the issue..."></textarea>
+        <button type="submit">Create</button>
+      </form>
+    </div>
+
+    <h2 style="margin-bottom:.75rem;">All Tickets</h2>
+    <div id="ticket-list"><p class="empty">No tickets yet.</p></div>
+
+    <hr class="section-divider">
+
+    <h1>🔔 Webhooks</h1>
+    <div class="card" style="margin-top:1.5rem;">
+      <h2>Register Webhook</h2>
+      <form id="webhook-form">
+        <label for="webhook-url">Callback URL</label>
+        <input type="url" id="webhook-url" placeholder="https://example.com/webhook" required>
+        <button type="submit">Register</button>
+      </form>
+    </div>
+
+    <h2 style="margin-bottom:.75rem;">Registered Webhooks</h2>
+    <div id="webhook-list"><p class="empty">No webhooks registered.</p></div>
+  </div>
+
+  <script>
+    const API = '';
+    const listEl = document.getElementById('ticket-list');
+    const form = document.getElementById('create-form');
+
+    async function loadTickets() {
+      const res = await fetch(`${API}/tickets`);
+      const tickets = await res.json();
+      if (!tickets || tickets.length === 0) {
+        listEl.innerHTML = '<p class="empty">No tickets yet.</p>';
+        return;
+      }
+      tickets.sort((a, b) => b.id - a.id);
+      listEl.innerHTML = tickets.map(t => `
+        <div class="ticket">
+          <div class="ticket-info">
+            <div class="ticket-title">#${t.id} — ${escapeHtml(t.title)}</div>
+            <div class="ticket-meta">${escapeHtml(t.description || '—')} · ${new Date(t.created_at).toLocaleString()}</div>
+          </div>
+          <span class="badge badge-${t.status}">${t.status.replace('_', ' ')}</span>
+          <div class="ticket-actions">
+            <select data-id="${t.id}">
+              <option value="open" ${t.status==='open'?'selected':''}>Open</option>
+              <option value="in_progress" ${t.status==='in_progress'?'selected':''}>In Progress</option>
+              <option value="closed" ${t.status==='closed'?'selected':''}>Closed</option>
+            </select>
+            <button onclick="updateStatus(${t.id}, this)">Update</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      const description = document.getElementById('desc').value.trim();
+      if (!title) return;
+      await fetch(`${API}/tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description })
+      });
+      form.reset();
+      loadTickets();
+    });
+
+    async function updateStatus(id, btn) {
+      const select = btn.parentElement.querySelector('select');
+      await fetch(`${API}/tickets/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: select.value })
+      });
+      loadTickets();
+    }
+
+    loadTickets();
+
+    // --- Webhooks ---
+    const whListEl = document.getElementById('webhook-list');
+    const whForm = document.getElementById('webhook-form');
+
+    async function loadWebhooks() {
+      const res = await fetch(`${API}/webhooks`);
+      const webhooks = await res.json();
+      if (!webhooks || webhooks.length === 0) {
+        whListEl.innerHTML = '<p class="empty">No webhooks registered.</p>';
+        return;
+      }
+      webhooks.sort((a, b) => b.id - a.id);
+      whListEl.innerHTML = webhooks.map(w => `
+        <div class="webhook-item">
+          <span class="webhook-id">#${w.id}</span>
+          <span class="webhook-url">${escapeHtml(w.url)}</span>
+          <button class="btn-delete" onclick="deleteWebhook(${w.id})">Delete</button>
+        </div>
+      `).join('');
+    }
+
+    whForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = document.getElementById('webhook-url').value.trim();
+      if (!url) return;
+      await fetch(`${API}/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      whForm.reset();
+      loadWebhooks();
+    });
+
+    async function deleteWebhook(id) {
+      await fetch(`${API}/webhooks/${id}`, { method: 'DELETE' });
+      loadWebhooks();
+    }
+
+    loadWebhooks();
+  </script>
+</body>
+</html>
